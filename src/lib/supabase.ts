@@ -12,6 +12,8 @@ export interface OpcoesCarregamento {
   desde?: string;
   /** Restringe a leitura aos últimos N dias operacionais (filtro de período) */
   ultimosDias?: number;
+  /** Busca apenas os lançamentos de um dia exato (otimização de egress) */
+  dia?: string;
 }
 
 export interface LinhaLancamento {
@@ -52,6 +54,10 @@ create policy "acesso_publico_lancamentos"
 
 create index if not exists lancamentos_data_idx on public.lancamentos (data);
 
+-- Índice para a sincronização incremental (filtro por criado_em)
+create index if not exists lancamentos_criado_em_idx
+  on public.lancamentos (criado_em);
+
 -- Tabela de metas operacionais (prazos por métrica do velocímetro)
 create table if not exists public.metas (
   tipo text primary key,
@@ -68,7 +74,25 @@ create policy "acesso_publico_metas"
   on public.metas
   for all
   using (true)
-  with check (true);`;
+  with check (true);
+
+-- Mantém atualizado_em sempre atual em insert/update das metas
+create or replace function public.metas_tocar_atualizado_em()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.atualizado_em = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists metas_atualizado_em_trg on public.metas;
+
+create trigger metas_atualizado_em_trg
+  before insert or update on public.metas
+  for each row
+  execute function public.metas_tocar_atualizado_em();`;
 
 export function normalizarUrl(url: string): string {
   return url.trim().replace(/\/+$/, "").replace(/\/rest\/v1$/i, "");
@@ -119,6 +143,10 @@ export async function carregarLancamentosSupabase(
   opcoes: OpcoesCarregamento = {}
 ): Promise<LinhaLancamento[]> {
   const filtros: string[] = [];
+  if (opcoes.dia) {
+    // Busca de dia único: nada além do dia filtrado é transferido
+    filtros.push(`data=eq.${opcoes.dia}`);
+  }
   if (opcoes.desde) {
     filtros.push(`criado_em=gt.${encodeURIComponent(opcoes.desde)}`);
   }

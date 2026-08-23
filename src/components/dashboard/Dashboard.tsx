@@ -56,6 +56,7 @@ export function Dashboard() {
     sincronizarAgora,
     atualizarPeriodoSincronizacao,
     importarHistorico,
+    garantirDia,
   } = useDados();
 
   const { toast, mostrar } = useToast();
@@ -74,6 +75,12 @@ export function Dashboard() {
   const abrirModal = (tipo: TipoSac | null) => {
     setTipoFixo(tipo);
     setModalAberto(true);
+  };
+
+  const aoTrocarData = (nova: string) => {
+    setDataFiltro(nova);
+    // Otimização de egress: se o dia não está no cache, busca só ele
+    void garantirDia(nova);
   };
 
   const aoSalvar = (input: NovoLancamento) => {
@@ -176,7 +183,7 @@ export function Dashboard() {
           titulo={titulo}
           legenda={legenda}
           data={dataFiltro}
-          onDataChange={setDataFiltro}
+          onDataChange={aoTrocarData}
           onToggleSidebar={() => setSidebarAberto((v) => !v)}
           acoes={
             <DadosMenu

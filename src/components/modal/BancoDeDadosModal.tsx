@@ -22,7 +22,7 @@ interface BancoDeDadosModalProps {
 type Etapa = "form" | "confirmar";
 
 const OPCOES_PERIODO = [
-  { valor: 0, rotulo: "Todos os dados" },
+  { valor: 0, rotulo: "Padrão (últimos 30 dias)" },
   { valor: 90, rotulo: "Últimos 90 dias" },
   { valor: 30, rotulo: "Últimos 30 dias" },
 ];

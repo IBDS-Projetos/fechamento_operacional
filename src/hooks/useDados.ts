@@ -37,6 +37,12 @@ const CHAVE_CACHE_SUPABASE = "fechOperacional:cacheSupabase";
 const CHAVE_ULTIMA_SINCRONIZACAO = "fechOperacional:ultimaSincronizacao";
 /** Força uma sincronização completa periodicamente para capturar alterações externas */
 const TTL_SINCRONIZACAO_MS = 24 * 60 * 60 * 1000;
+/**
+ * Janela padrão (dias) da sincronização completa quando nenhum período é
+ * configurado — evita baixar todo o histórico e poupa egress do Supabase.
+ * Dias fora da janela são buscados sob demanda (dia a dia) ao navegar o filtro.
+ */
+const JANELA_PADRAO_DIAS = 30;
 
 function lerOrigem(): Origem {
   if (typeof window === "undefined") return "local";
@@ -177,8 +183,11 @@ export function useDados() {
 
         const linhas = await carregarLancamentosSupabase(supabaseConfig, {
           desde: completa ? undefined : (ultima ?? undefined),
-          ultimosDias:
-            completa && supabaseConfig.periodo ? supabaseConfig.periodo : undefined,
+          ultimosDias: completa
+            ? supabaseConfig.periodo && supabaseConfig.periodo > 0
+              ? supabaseConfig.periodo
+              : JANELA_PADRAO_DIAS
+            : undefined,
         });
 
         const agora = new Date().toISOString();
@@ -312,6 +321,29 @@ export function useDados() {
       }
     },
     [origem, supabaseConfig]
+  );
+
+  const garantirDia = useCallback(
+    async (iso: string) => {
+      // Otimização de egress: ao navegar para um dia ainda não em cache,
+      // busca apenas os lançamentos daquele dia exato.
+      if (origem !== "supabase" || !supabaseConfig) return;
+      if (dados[iso]) return;
+      try {
+        const linhas = await carregarLancamentosSupabase(supabaseConfig, {
+          dia: iso,
+        });
+        setDados((prev) => {
+          if (prev[iso]) return prev;
+          const novos = { ...prev, [iso]: agruparPorDia(linhas)[iso] ?? [] };
+          salvarCacheSupabase(novos);
+          return novos;
+        });
+      } catch {
+        // Falha silenciosa: o dia permanece vazio até a próxima sincronização
+      }
+    },
+    [origem, supabaseConfig, dados]
   );
 
   const atualizarMetas = useCallback(
@@ -454,5 +486,6 @@ export function useDados() {
     sincronizarAgora,
     atualizarPeriodoSincronizacao,
     importarHistorico,
+    garantirDia,
   };
 }
